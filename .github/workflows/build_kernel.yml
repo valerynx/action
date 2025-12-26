@@ -1,0 +1,71 @@
+name: Build Android Kernel (KSU + RKSU)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev \
+          cpio execstack libncurses5-dev git python3 python2
+
+      - name: Setup Zyc Clang 14
+        run: |
+          mkdir clang
+          cd clang
+          wget https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20220904-release/Clang-14.0.6-20220904.tar.gz
+          tar -xf Clang-14.0.6-20220904.tar.gz
+          echo "$(pwd)/bin" >> $GITHUB_PATH
+
+      - name: Integrate KernelSU Ultra (Susfs)
+        run: |
+          # Automated Susfs/KernelSU Ultra setup
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+          # Add extra Ultra/Susfs patches here if specific files are provided in your repo
+
+      - name: Manual Hook RKSU
+        run: |
+          # Manual hooking for RKSU (Simplified example of adding hooks)
+          # Note: In a real scenario, you would apply rksu.patch or use sed
+          git clone https://github.com/rsuntk/RKSU rksu_src
+          cp -r rksu_src/kernel/* kernel/
+          # Example of manual hooking into fs/exec.c or relevant kernel files
+          sed -i '/search_binary_handler(bprm);/i \    extern int rksu_handle_execve(struct linux_binprm *bprm);\n    rksu_handle_execve(bprm);' fs/exec.c
+
+      - name: Configure and Enforce Defconfig
+        run: |
+          # Use your specific defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out a32_manual_ksu_defconfig
+          
+          # Force-enable required configs for KSU/RKSU
+          scripts/config --file out/.config -e CONFIG_KSU
+          scripts/config --file out/.config -e CONFIG_OVERLAY_FS
+          scripts/config --file out/.config -e CONFIG_KPROBES
+          scripts/config --file out/.config -e CONFIG_RETPOLINE
+          # RKSU specific enforce
+          scripts/config --file out/.config -e CONFIG_RKSU
+          
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out olddefconfig
+
+      - name: Build Kernel
+        run: |
+          make -j$(nproc --all) \
+               O=out \
+               ARCH=arm64 \
+               CC=clang \
+               CLANG_TRIPLE=aarch64-linux-gnu- \
+               CROSS_COMPILE=aarch64-linux-gnu- \
+               CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image-a32-KSU-RKSU
+          path: out/arch/arm64/boot/Image
