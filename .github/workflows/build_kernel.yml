@@ -21,14 +21,52 @@ jobs:
 
       - name: Setup Zyc Clang 14
         run: |
-          mkdir zyc-clang
-          cd zyc-clang
+          mkdir -p $HOME/zyc-clang
+          cd $HOME/zyc-clang
           wget https://github.com/EmanuelCN/zyc_clang-14/archive/refs/heads/master.zip
           unzip master.zip
-          # Add the bin directory to path (adjusting for the repo structure)
-          echo "$(pwd)/zyc_clang-14-main/bin" >> $GITHUB_PATH
-          cd ..
+          # Move files so the 'bin' folder is exactly at $HOME/zyc-clang/bin
+          mv zyc_clang-14-master/* . || mv zyc_clang-14-main/* .
+          chmod +x bin/*
 
+      - name: Build Kernel
+        env:
+          # Define the absolute path to your toolchain
+          TC_PATH: ${{ github.workspace }}/../zyc-clang/bin
+        run: |
+          mkdir -p out
+          
+          # We define the tools using the absolute path to prevent "not found" errors
+          MAKE_ARGS="O=out \
+                ARCH=arm64 \
+                CC=${{ env.TC_PATH }}/clang \
+                LD=${{ env.TC_PATH }}/ld.lld \
+                AR=${{ env.TC_PATH }}/llvm-ar \
+                NM=${{ env.TC_PATH }}/llvm-nm \
+                OBJCOPY=${{ env.TC_PATH }}/llvm-objcopy \
+                OBJDUMP=${{ env.TC_PATH }}/llvm-objdump \
+                STRIP=${{ env.TC_PATH }}/llvm-strip \
+                READELF=${{ env.TC_PATH }}/llvm-readelf \
+                CLANG_TRIPLE=aarch64-linux-gnu- \
+                CROSS_COMPILE=${{ env.TC_PATH }}/aarch64-linux-gnu- \
+                CROSS_COMPILE_ARM32=${{ env.TC_PATH }}/arm-linux-gnueabi- \
+                KCFLAGS='-w -pipe -O3' \
+                CONFIG_SECTION_MISMATCH_WARN_ONLY=y"
+
+          # 1. Configure
+          make $MAKE_ARGS a32_k+e_defconfig
+          
+          # 2. Force KSU/RKSU configs
+          scripts/config --file out/.config -e CONFIG_KSU
+          scripts/config --file out/.config -e CONFIG_KSU_SUSFS
+          scripts/config --file out/.config -e CONFIG_RKSU
+          scripts/config --file out/.config -e CONFIG_RKSU_MANUAL_HOOK
+          
+          # 3. Build
+          make $MAKE_ARGS olddefconfig
+          make -j$(nproc --all) $MAKE_ARGS
+          
+          echo "KERNEL_VERSION=$(make -C out kernelversion)" >> $GITHUB_ENV
       - name: Setup SukiSU Ultra
         run: |
           curl -LSs 'https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh' | bash -s builtin
