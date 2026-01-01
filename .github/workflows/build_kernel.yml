@@ -16,8 +16,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libncurses-dev flex bison bc git cpio unzip python3 python3-pip xz-utils
-          pip install pyyaml
+          sudo apt-get install -y build-essential libncurses-dev flex bison bc git cpio unzip python3 python3-pip xz-utils libssl-dev
 
       - name: Setup Zyc Clang 14
         run: |
@@ -99,82 +98,48 @@ jobs:
 
       - name: Build Kernel
         run: |
-          # 1. Ensure output directory exists
+          # 1. Setup paths and output dir
           mkdir -p out
-
-          # 2. Define Toolchain path clearly
           TC_DIR="$HOME/zyc-clang/bin"
           
-          # 3. Run the Build using a cleaner argument passing method
-          # Note: We use double quotes to prevent the '3' error from shell misinterpretation
-          make O=out \
-               ARCH=arm64 \
-               CC="$TC_DIR/clang" \
-               LD="$TC_DIR/ld.lld" \
-               AR="$TC_DIR/llvm-ar" \
-               NM="$TC_DIR/llvm-nm" \
-               OBJCOPY="$TC_DIR/llvm-objcopy" \
-               OBJDUMP="$TC_DIR/llvm-objdump" \
-               STRIP="$TC_DIR/llvm-strip" \
-               READELF="$TC_DIR/llvm-readelf" \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE="$TC_DIR/aarch64-linux-gnu-" \
-               CROSS_COMPILE_ARM32="$TC_DIR/arm-linux-gnueabi-" \
-               KCFLAGS="-w -pipe -O3" \
-               KCPPFLAGS="-O3" \
-               CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-               -j$(nproc --all) a32_k+e_defconfig
+          # 2. Export variables to prevent shell parsing errors
+          export ARCH=arm64
+          export CC="$TC_DIR/clang"
+          export LD="$TC_DIR/ld.lld"
+          export AR="$TC_DIR/llvm-ar"
+          export NM="$TC_DIR/llvm-nm"
+          export OBJCOPY="$TC_DIR/llvm-objcopy"
+          export OBJDUMP="$TC_DIR/llvm-objdump"
+          export STRIP="$TC_DIR/llvm-strip"
+          export READELF="$TC_DIR/llvm-readelf"
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE="$TC_DIR/aarch64-linux-gnu-"
+          export CROSS_COMPILE_ARM32="$TC_DIR/arm-linux-gnueabi-"
+          export KCFLAGS="-w -pipe -O3"
+          export KCPPFLAGS="-O3"
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 
-          # 4. Apply KSU/RKSU Configs to the generated .config in 'out'
-          scripts/config --file out/.config -e CONFIG_KSU
-          scripts/config --file out/.config -e CONFIG_KSU_SUSFS
-          scripts/config --file out/.config -e CONFIG_RKSU
-          scripts/config --file out/.config -e CONFIG_RKSU_MANUAL_HOOK
+          # 3. Step 1: Configuration
+          echo "--- Generating Config ---"
+          make O=out a32_k+e_defconfig
+
+          # 4. Step 2: Inject KSU/RKSU
+          echo "--- Patching .config ---"
+          ./scripts/config --file out/.config -e CONFIG_KSU
+          ./scripts/config --file out/.config -e CONFIG_KSU_SUSFS
+          ./scripts/config --file out/.config -e CONFIG_RKSU
+          ./scripts/config --file out/.config -e CONFIG_RKSU_MANUAL_HOOK
           
-          # 5. Build the actual kernel
-          make O=out \
-               ARCH=arm64 \
-               CC="$TC_DIR/clang" \
-               LD="$TC_DIR/ld.lld" \
-               AR="$TC_DIR/llvm-ar" \
-               NM="$TC_DIR/llvm-nm" \
-               OBJCOPY="$TC_DIR/llvm-objcopy" \
-               OBJDUMP="$TC_DIR/llvm-objdump" \
-               STRIP="$TC_DIR/llvm-strip" \
-               READELF="$TC_DIR/llvm-readelf" \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE="$TC_DIR/aarch64-linux-gnu-" \
-               CROSS_COMPILE_ARM32="$TC_DIR/arm-linux-gnueabi-" \
-               KCFLAGS="-w -pipe -O3" \
-               KCPPFLAGS="-O3" \
-               CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-               -j$(nproc --all) olddefconfig
+          # 5. Step 3: Build the Kernel
+          echo "--- Starting Build ---"
+          make O=out -j$(nproc --all) olddefconfig
+          make O=out -j$(nproc --all)
 
-          make O=out \
-               ARCH=arm64 \
-               CC="$TC_DIR/clang" \
-               LD="$TC_DIR/ld.lld" \
-               AR="$TC_DIR/llvm-ar" \
-               NM="$TC_DIR/llvm-nm" \
-               OBJCOPY="$TC_DIR/llvm-objcopy" \
-               OBJDUMP="$TC_DIR/llvm-objdump" \
-               STRIP="$TC_DIR/llvm-strip" \
-               READELF="$TC_DIR/llvm-readelf" \
-               CLANG_TRIPLE=aarch64-linux-gnu- \
-               CROSS_COMPILE="$TC_DIR/aarch64-linux-gnu-" \
-               CROSS_COMPILE_ARM32="$TC_DIR/arm-linux-gnueabi-" \
-               KCFLAGS="-w -pipe -O3" \
-               KCPPFLAGS="-O3" \
-               CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
-               -j$(nproc --all)
-
-          # 6. Set variables for following steps
+          # 6. Extract version for Telegram
           echo "KERNEL_VERSION=$(make -C out ARCH=arm64 kernelversion)" >> $GITHUB_ENV
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-A32-SukiSU-RKSU
+          name: vampire@ncatt
           path: |
             arch/arm64/boot/Image
-            arch/arm64/boot/Image.gz-dtb
-            arch/arm64/boot/dtbo.img
