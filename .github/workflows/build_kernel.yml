@@ -102,40 +102,40 @@ jobs:
           mkdir -p out
           TC_DIR="$HOME/zyc-clang/bin"
           
-          # 2. Export variables to prevent shell parsing errors
+          # 2. Export variables (No complex quotes here)
           export ARCH=arm64
-          export CC="$TC_DIR/clang"
-          export LD="$TC_DIR/ld.lld"
-          export AR="$TC_DIR/llvm-ar"
-          export NM="$TC_DIR/llvm-nm"
-          export OBJCOPY="$TC_DIR/llvm-objcopy"
-          export OBJDUMP="$TC_DIR/llvm-objdump"
-          export STRIP="$TC_DIR/llvm-strip"
-          export READELF="$TC_DIR/llvm-readelf"
+          export CC=$TC_DIR/clang
+          export LD=$TC_DIR/ld.lld
+          export AR=$TC_DIR/llvm-ar
+          export NM=$TC_DIR/llvm-nm
+          export OBJCOPY=$TC_DIR/llvm-objcopy
+          export OBJDUMP=$TC_DIR/llvm-objdump
+          export STRIP=$TC_DIR/llvm-strip
+          export READELF=$TC_DIR/llvm-readelf
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE="$TC_DIR/aarch64-linux-gnu-"
-          export CROSS_COMPILE_ARM32="$TC_DIR/arm-linux-gnueabi-"
+          export CROSS_COMPILE=$TC_DIR/aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=$TC_DIR/arm-linux-gnueabi-
           export KCFLAGS="-w -pipe -O3"
           export KCPPFLAGS="-O3"
           export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 
-          # 3. Step 1: Configuration
+          # 3. Generate Config
           echo "--- Generating Config ---"
           make O=out a32_k+e_defconfig
 
-          # 4. Step 2: Inject KSU/RKSU
+          # 4. Inject KSU/RKSU
           echo "--- Patching .config ---"
           ./scripts/config --file out/.config -e CONFIG_KSU
           ./scripts/config --file out/.config -e CONFIG_KSU_SUSFS
           ./scripts/config --file out/.config -e CONFIG_RKSU
           ./scripts/config --file out/.config -e CONFIG_RKSU_MANUAL_HOOK
           
-          # 5. Step 3: Build the Kernel
+          # 5. Build the Kernel
           echo "--- Starting Build ---"
           make O=out -j$(nproc --all) olddefconfig
           make O=out -j$(nproc --all)
 
-          # 6. Extract version for Telegram
+          # 6. Set Version for Telegram
           echo "KERNEL_VERSION=$(make -C out ARCH=arm64 kernelversion)" >> $GITHUB_ENV
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
